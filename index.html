@@ -164,10 +164,19 @@ td.r,th.r{text-align:right}
 .utbl .acts{display:flex;flex-wrap:wrap;gap:4px;justify-content:flex-end}
 .utbl .acts button{font-size:12px;padding:3px 8px;border-radius:6px;border:1px solid var(--line);background:var(--surface-2)}
 .utbl .acts button.danger{color:var(--bad)}
-.pill{font-size:11px;border-radius:4px;padding:0 6px;background:var(--surface-2);color:var(--muted);margin-left:4px}
+.pill{display:inline-block;width:auto;font-size:11px;border-radius:4px;padding:0 6px;background:var(--surface-2);color:var(--muted);margin-left:4px}
 .pill.off{background:var(--bad-soft);color:var(--bad)}
 .pill.adm{background:var(--accent-soft);color:var(--accent)}
 .muted{color:var(--muted);font-size:12.5px}
+
+.ulist{display:grid;gap:8px}
+.urow{display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center;border:1px solid var(--line);border-radius:8px;padding:10px 12px;background:var(--surface)}
+.urow.off{opacity:.65}
+.urow.editing{background:var(--surface-2);border-color:var(--accent)}
+.uname{flex:1 1 180px;min-width:0;overflow-wrap:anywhere}
+.ustat{flex:0 1 auto;font-size:13px;text-align:right}
+.btn.danger{color:var(--bad);border-color:var(--bad)}
+details summary{list-style:none} details summary::-webkit-details-marker{display:none}
 </style>
 
 </head><body>
@@ -266,7 +275,7 @@ function streak(){let n=0,d=today();if(!Store.stats[d])d--;while(Store.stats[d])
 let view='home', S=null; // S = session state
 
 function syncBadge(){const el=$('#sync');if(!el)return;el.className='sync'+(Store.online?' on':'');
-  el.innerHTML=Store.uid?`<span class="who"><b></b>${esc(Store.fullName||Store.username)}</span><span class="links">${Store.isAdmin?'<button class="linkbtn" id="toadmin">គ្រប់គ្រងអ្នកប្រើ</button> · ':''}<button class="linkbtn" id="topw">ប្តូរពាក្យសម្ងាត់</button> · <button class="linkbtn" id="logout">ចេញ</button></span>`
+  el.innerHTML=Store.uid?`<span class="who"><b></b>${esc(Store.fullName||Store.username)}</span><span class="links">${Store.isAdmin?'<button class="linkbtn" id="toadmin">គ្រប់គ្រងសិស្ស</button> · ':''}<button class="linkbtn" id="topw">ប្តូរពាក្យសម្ងាត់</button> · <button class="linkbtn" id="logout">ចេញ</button></span>`
     :(sb?`<b></b>មិនបានចូលគណនី · <button class="linkbtn" id="tologin">ចូលគណនី</button>`:'<b></b>រក្សាទុកក្នុងឧបករណ៍នេះ');
   const ta=$('#toadmin');ta&&(ta.onclick=()=>{view='admin';render()});
   const tp=$('#topw');tp&&(tp.onclick=()=>{view='pw';render()});
@@ -543,81 +552,125 @@ function renderPw(){
 }
 
 /* ---------- admin: manage student accounts ---------- */
-const A={users:null,msg:'',creds:''};
+const A={users:null,msg:'',creds:'',edit:null,q:''};
 async function adminCall(body){
   const {data,error}=await sb.functions.invoke('admin-users',{body});
   if(error){let m=error.message;try{const j=await error.context.json();m=j.error||m}catch(e){}throw new Error(m)}
   return data;
 }
-function genPw(){const c='abcdefghjkmnpqrstuvwxyz23456789';let s='';const r=crypto.getRandomValues(new Uint32Array(8));for(const x of r)s+=c[x%c.length];return s}
+const ERRK={bad_username:'ឈ្មោះចូលត្រូវមាន ៣–២០ តួ (a-z, 0-9, _)',short_password:'ពាក្យសម្ងាត់ត្រូវមានយ៉ាងតិច ៦ តួ',not_admin:'អ្នកមិនមែនជា admin ទេ',not_found:'រកមិនឃើញគណនីនេះទេ'};
+const errText=e=>{const m=String(e||'');if(ERRK[m])return ERRK[m];if(/already|registered|exists|duplicate|unique/i.test(m))return 'ឈ្មោះចូលនេះមានគេប្រើហើយ';return m};
+const defPw=()=>LS.get('bbl_defpw','123456');
 const fmtDate=d=>d?new Date(d).toLocaleDateString('en-GB',{day:'2-digit',month:'short'}):'—';
-async function loadUsers(){try{A.users=(await adminCall({action:'list'})).users;A.msg=''}catch(e){A.msg='មិនអាចផ្ទុកបញ្ជីអ្នកប្រើបានទេ៖ '+e.message}renderAdmin()}
+function nextUsernames(n){
+  let max=0;(A.users||[]).forEach(u=>{const m=/^s(\d+)$/.exec(u.username);if(m)max=Math.max(max,+m[1])});
+  return Array.from({length:n},(_,i)=>'s'+String(max+1+i).padStart(3,'0'));
+}
+async function loadUsers(){try{A.users=(await adminCall({action:'list'})).users}catch(e){A.users=A.users||[];A.msg='មិនអាចផ្ទុកបញ្ជីបានទេ៖ '+errText(e.message)}renderAdmin()}
+function credBlock(list){const link=location.origin+location.pathname;
+  return `ចូលប្រើ៖ ${link}\n\n`+list.map(r=>`${r.full_name||r.username}\n  ឈ្មោះចូល: ${r.username}\n  ពាក្យសម្ងាត់: ${r.password}`).join('\n\n')}
 function renderAdmin(){
   if(!Store.isAdmin){view='home';return render()}
-  if(A.users===null){$('#app').innerHTML='<div class="loading">កំពុងផ្ទុកបញ្ជីអ្នកប្រើ…</div>';A.users=undefined;loadUsers();return}
-  const us=(A.users||[]).slice().sort((a,b)=>(b.is_admin-a.is_admin)||a.username.localeCompare(b.username));
-  const wk=Date.now()-7*864e5;const active=us.filter(u=>u.last_active&&new Date(u.last_active)>wk).length;
-  $('#app').innerHTML=`<header class="top"><div class="brand"><small>Admin</small><h1>គ្រប់គ្រងអ្នកប្រើ</h1></div><button class="btn ghost" id="back">← ទំព័រដើម</button></header>
+  if(A.users===null){$('#app').innerHTML='<div class="loading">កំពុងផ្ទុកបញ្ជីសិស្ស…</div>';A.users=undefined;loadUsers();return}
+  if(A.users===undefined)return;
+  const all=A.users.slice().sort((a,b)=>(b.is_admin-a.is_admin)||(a.full_name||a.username).localeCompare(b.full_name||b.username));
+  const q=A.q.trim().toLowerCase();
+  const us=q?all.filter(u=>(u.full_name+' '+u.username).toLowerCase().includes(q)):all;
+  const wk=Date.now()-7*864e5;const active=all.filter(u=>u.last_active&&new Date(u.last_active)>wk).length;
+  const students=all.filter(u=>!u.is_admin).length;
+  $('#app').innerHTML=`<header class="top"><div class="brand"><small>Admin</small><h1>គ្រប់គ្រងសិស្ស</h1></div><button class="btn ghost" id="back">← ទំព័រដើម</button></header>
   <div class="adm">
     <section class="summary"><div class="bigrow">
-      <div class="big"><span class="v">${us.length}</span><span class="l">គណនីសរុប</span></div>
+      <div class="big"><span class="v">${students}</span><span class="l">សិស្សសរុប</span></div>
       <div class="big"><span class="v">${active}</span><span class="l">សកម្មក្នុង ៧ ថ្ងៃ</span></div>
-      <div class="big"><span class="v">${us.reduce((a,u)=>a+u.answered,0).toLocaleString()}</span><span class="l">សំណួរបានឆ្លើយសរុប</span></div>
+      <div class="big"><span class="v">${all.reduce((a,u)=>a+u.answered,0).toLocaleString()}</span><span class="l">សំណួរបានឆ្លើយសរុប</span></div>
     </div></section>
-    ${A.msg?`<div class="err">${esc(A.msg)}</div>`:''}
-    <section class="panel"><h2>បង្កើតគណនីមួយ</h2>
+    ${A.msg?`<div class="err" role="alert">${esc(A.msg)}</div>`:''}
+    ${A.creds?`<section class="panel"><h2>✓ រួចរាល់ · ផ្ញើព័ត៌មាននេះឲ្យសិស្ស</h2><div class="creds" id="creds">${esc(A.creds)}</div><div class="row"><button class="btn primary" id="copy">ចម្លង</button><button class="btn ghost" id="clr">បិទ</button></div></section>`:''}
+    <section class="panel"><h2>បន្ថែមសិស្ស</h2>
       <form id="one" class="row" novalidate>
-        <div class="f"><label for="nu">ឈ្មោះអ្នកប្រើ</label><input id="nu" autocapitalize="none" spellcheck="false" placeholder="sokha"></div>
-        <div class="f"><label for="nf">ឈ្មោះពេញ</label><input id="nf" placeholder="សុខា"></div>
-        <div class="f"><label for="np">ពាក្យសម្ងាត់</label><input id="np" value="${genPw()}"></div>
-        <button class="btn primary" type="submit">បង្កើត</button>
+        <div class="f"><label for="nf">ឈ្មោះពេញ</label><input id="nf" placeholder="ឧ. សុខ ដារា" autocomplete="off"></div>
+        <div class="f"><label for="nu">ឈ្មោះចូល <span class="muted">(ទុកទទេ = បង្កើតឲ្យ)</span></label><input id="nu" autocapitalize="none" spellcheck="false" placeholder="${nextUsernames(1)[0]}" autocomplete="off"></div>
+        <div class="f"><label for="np">ពាក្យសម្ងាត់</label><input id="np" value="${esc(defPw())}" autocomplete="off"></div>
+        <button class="btn primary" type="submit" id="addone">បន្ថែម</button>
       </form>
-      <p class="muted" style="margin:0">ឈ្មោះអ្នកប្រើ៖ អក្សរឡាតាំងតូច លេខ ឬ _ ចំនួន ៣–២០ តួ។</p>
+      <details><summary class="linkbtn" style="cursor:pointer">បន្ថែមច្រើននាក់ក្នុងពេលតែមួយ</summary>
+        <div style="display:grid;gap:8px;margin-top:10px">
+          <p class="muted" style="margin:0">សរសេរ <b>ឈ្មោះពេញ មួយជួរ មួយនាក់</b>។ ឈ្មោះចូលនឹងបង្កើតឲ្យ (s001, s002…) ហើយពាក្យសម្ងាត់ប្រើតាមប្រអប់ខាងលើ។ បើចង់កំណត់ខ្លួនឯង សរសេរ៖ <code>ឈ្មោះពេញ, ឈ្មោះចូល, ពាក្យសម្ងាត់</code></p>
+          <label for="bulk" class="muted">បញ្ជីឈ្មោះ</label>
+          <textarea id="bulk" placeholder="សុខ ដារា&#10;ចាន់ សុភា&#10;លី វណ្ណា, vanna, vanna123"></textarea>
+          <div><button class="btn primary" id="bulkgo">បន្ថែមទាំងអស់</button></div>
+        </div>
+      </details>
     </section>
-    <section class="panel"><h2>បង្កើតច្រើនគណនីក្នុងពេលតែមួយ</h2>
-      <p class="muted" style="margin:0">មួយជួរ មួយនាក់៖ <code>ឈ្មោះអ្នកប្រើ, ឈ្មោះពេញ</code> ។ ពាក្យសម្ងាត់នឹងបង្កើតដោយស្វ័យប្រវត្តិ (ឬបន្ថែម <code>, ពាក្យសម្ងាត់</code> នៅចុងជួរ)។</p>
-      <label for="bulk" class="muted">បញ្ជី</label>
-      <textarea id="bulk" placeholder="sokha, សុខា&#10;dara, ដារា&#10;vanna, វណ្ណា, mypass123"></textarea>
-      <div><button class="btn primary" id="bulkgo">បង្កើតទាំងអស់</button></div>
-    </section>
-    ${A.creds?`<section class="panel"><h2>ព័ត៌មានចូលគណនី សម្រាប់ផ្ញើឲ្យនិស្សិត</h2><div class="creds" id="creds">${esc(A.creds)}</div><div class="row"><button class="btn" id="copy">ចម្លង</button><button class="btn ghost" id="clr">លាក់</button></div></section>`:''}
-    <section class="panel"><h2>អ្នកប្រើទាំងអស់ (${us.length})</h2>
-      <div class="tbl"><table class="utbl"><thead><tr><th>ឈ្មោះ</th><th class="r">បានឆ្លើយ</th><th class="r">ត្រូវ</th><th class="r">សកម្មចុងក្រោយ</th><th class="r"></th></tr></thead><tbody>
-      ${us.map(u=>`<tr><td><b>${esc(u.full_name||u.username)}</b><br><span class="muted">${esc(u.username)}</span>${u.is_admin?'<span class="pill adm">admin</span>':''}${u.disabled?'<span class="pill off">បានបិទ</span>':''}</td>
-        <td class="r num">${u.answered}</td><td class="r num">${u.answered?Math.round(100*u.correct/u.answered)+'%':'—'}</td><td class="r">${fmtDate(u.last_active||u.last_sign_in_at)}</td>
-        <td><div class="acts">${u.is_admin?'':`<button data-a="reset" data-id="${u.id}">ប្តូរពាក្យសម្ងាត់</button><button data-a="${u.disabled?'enable':'disable'}" data-id="${u.id}">${u.disabled?'បើកវិញ':'បិទ'}</button><button class="danger" data-a="delete" data-id="${u.id}">លុប</button>`}</div></td></tr>`).join('')}
-      </tbody></table></div>
+    <section class="panel"><div class="row" style="justify-content:space-between;align-items:center"><h2>បញ្ជីសិស្ស (${all.length})</h2>
+      <input id="q" placeholder="ស្វែងរកឈ្មោះ…" value="${esc(A.q)}" style="max-width:220px" aria-label="ស្វែងរក"></div>
+      <div class="ulist">${us.map(u=>A.edit===u.id?editRow(u):viewRow(u)).join('')||'<p class="muted">មិនមានទេ</p>'}</div>
     </section>
   </div>`;
   syncBadge();
   $('#back').onclick=()=>{view='home';render()};
   const cp=$('#copy');cp&&(cp.onclick=async()=>{try{await navigator.clipboard.writeText(A.creds);cp.textContent='បានចម្លង ✓'}catch(e){const r=document.createRange();r.selectNodeContents($('#creds'));const sl=getSelection();sl.removeAllRanges();sl.addRange(r)}});
   const cl=$('#clr');cl&&(cl.onclick=()=>{A.creds='';renderAdmin()});
-  const link=location.origin+location.pathname;
+  const qi=$('#q');qi.oninput=()=>{A.q=qi.value;const p=qi.selectionStart;renderAdmin();const n=$('#q');n.focus();n.setSelectionRange(p,p)};
+  $('#np').onchange=e=>{if(e.target.value.trim().length>=6)LS.set('bbl_defpw',e.target.value.trim())};
   const doCreate=async rows=>{
+    A.msg='';
     try{const {results}=await adminCall({action:'create',users:rows});
-      const ok=results.filter(r=>r.ok),bad=results.filter(r=>!r.ok);
-      A.creds=(ok.length?`ចូលប្រើ៖ ${link}\n\n`+rows.filter(r=>ok.some(o=>o.username===r.username.toLowerCase())).map(r=>`${r.full_name||r.username}\n  ឈ្មោះអ្នកប្រើ: ${r.username.toLowerCase()}\n  ពាក្យសម្ងាត់: ${r.password}`).join('\n\n'):'');
-      A.msg=bad.length?'មិនអាចបង្កើត៖ '+bad.map(b=>b.username+' ('+(b.error==='bad_username'?'ឈ្មោះមិនត្រឹមត្រូវ':/already|registered|exists/i.test(b.error||'')?'មានរួចហើយ':b.error==='short_password'?'ពាក្យសម្ងាត់ខ្លីពេក':b.error)+')').join(', '):'';
-      A.users=null;await loadUsers();
-    }catch(e){A.msg='មានបញ្ហា៖ '+e.message;renderAdmin()}
+      const ok=rows.filter(r=>results.some(x=>x.ok&&x.username===r.username));
+      const bad=results.filter(r=>!r.ok);
+      A.creds=ok.length?credBlock(ok):'';
+      A.msg=bad.length?'មិនអាចបន្ថែម៖ '+bad.map(b=>`${b.username||'(ទទេ)'} — ${errText(b.error)}`).join(' · '):'';
+      A.users=null;loadUsers();
+    }catch(e){A.msg='មានបញ្ហា៖ '+errText(e.message);renderAdmin()}
   };
-  $('#one').onsubmit=ev=>{ev.preventDefault();doCreate([{username:$('#nu').value.trim(),full_name:$('#nf').value.trim(),password:$('#np').value.trim()}])};
+  $('#one').onsubmit=ev=>{ev.preventDefault();
+    const full_name=$('#nf').value.trim(),pw=$('#np').value.trim();
+    let username=$('#nu').value.trim().toLowerCase()||nextUsernames(1)[0];
+    if(!full_name&&!$('#nu').value.trim()){A.msg='សូមបំពេញឈ្មោះពេញ';return renderAdmin()}
+    if(pw.length<6){A.msg=ERRK.short_password;return renderAdmin()}
+    LS.set('bbl_defpw',pw);$('#addone').disabled=true;$('#addone').textContent='កំពុងបន្ថែម…';
+    doCreate([{username,full_name,password:pw}]);
+  };
   $('#bulkgo').onclick=()=>{
-    const rows=$('#bulk').value.split('\n').map(l=>l.trim()).filter(Boolean).map(l=>{const p=l.split(/\s*[,\t]\s*/);return {username:p[0]||'',full_name:p[1]||'',password:p[2]||genPw()}});
-    if(rows.length)doCreate(rows);
+    const lines=$('#bulk').value.split('\n').map(l=>l.trim()).filter(Boolean);if(!lines.length)return;
+    const pw=$('#np').value.trim();if(pw.length<6){A.msg=ERRK.short_password;return renderAdmin()}
+    const autos=nextUsernames(lines.length);let k=0;
+    const rows=lines.map(l=>{const p=l.split(/\s*[,\t]\s*/);return {full_name:p[0]||'',username:(p[1]||'').toLowerCase()||autos[k++],password:p[2]||pw}});
+    $('#bulkgo').disabled=true;$('#bulkgo').textContent='កំពុងបន្ថែម…';doCreate(rows);
   };
-  document.querySelectorAll('.acts button').forEach(b=>b.onclick=async()=>{
-    const id=b.dataset.id,a=b.dataset.a,u=us.find(x=>x.id===id);
-    if(a==='delete'&&!b.dataset.sure){b.dataset.sure=1;b.textContent='ចុចម្តងទៀតដើម្បីលុប';return}
-    b.disabled=true;
-    try{
-      if(a==='reset'){const pw=genPw();await adminCall({action:'reset',id,password:pw});A.creds=`ចូលប្រើ៖ ${link}\n\n${u.full_name||u.username}\n  ឈ្មោះអ្នកប្រើ: ${u.username}\n  ពាក្យសម្ងាត់ថ្មី: ${pw}`;A.msg=''}
-      else{await adminCall({action:a,id});A.msg=''}
-      A.users=null;await loadUsers();
-    }catch(e){A.msg='មានបញ្ហា៖ '+e.message;renderAdmin()}
-  });
+  document.querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>{A.edit=b.dataset.edit;A.msg='';renderAdmin()});
+  const ef=$('#editf');if(ef){
+    const u=all.find(x=>x.id===A.edit);
+    $('#ecancel').onclick=()=>{A.edit=null;renderAdmin()};
+    ef.onsubmit=async ev=>{ev.preventDefault();
+      const body={action:'update',id:u.id,full_name:$('#ef').value,username:$('#eu').value.trim().toLowerCase()};
+      const pw=$('#ep').value.trim();if(pw)body.password=pw;
+      $('#esave').disabled=true;$('#esave').textContent='កំពុងរក្សាទុក…';
+      try{await adminCall(body);
+        A.creds=(pw||body.username!==u.username)?credBlock([{full_name:body.full_name,username:body.username,password:pw||'(មិនបានប្តូរ)'}]):'';
+        A.msg='';A.edit=null;A.users=null;loadUsers();
+      }catch(e){A.msg='មិនអាចរក្សាទុក៖ '+errText(e.message);renderAdmin()}
+    };
+    const tg=$('#etoggle');tg&&(tg.onclick=async()=>{tg.disabled=true;try{await adminCall({action:u.disabled?'enable':'disable',id:u.id});A.users=null;A.edit=null;loadUsers()}catch(e){A.msg=errText(e.message);renderAdmin()}});
+    const dl=$('#edel');dl&&(dl.onclick=async()=>{if(!dl.dataset.sure){dl.dataset.sure=1;dl.textContent='ចុចម្តងទៀត ដើម្បីលុបជាស្ថាពរ';return}
+      dl.disabled=true;try{await adminCall({action:'delete',id:u.id});A.users=null;A.edit=null;loadUsers()}catch(e){A.msg=errText(e.message);renderAdmin()}});
+  }
 }
+function viewRow(u){return `<div class="urow${u.disabled?' off':''}">
+  <div class="uname"><b>${esc(u.full_name||u.username)}</b>${u.is_admin?'<span class="pill adm">admin</span>':''}${u.disabled?'<span class="pill off">បានបិទ</span>':''}<br><span class="muted">ឈ្មោះចូល: ${esc(u.username)}</span></div>
+  <div class="ustat"><span class="num">${u.answered}</span> សំណួរ${u.answered?` · ${Math.round(100*u.correct/u.answered)}% ត្រូវ`:''}<br><span class="muted">សកម្ម: ${fmtDate(u.last_active||u.last_sign_in_at)}</span></div>
+  <button class="btn" data-edit="${u.id}">កែ</button></div>`}
+function editRow(u){return `<form class="urow editing" id="editf" novalidate>
+  <div class="row" style="flex:1 1 100%">
+    <div class="f"><label for="ef">ឈ្មោះពេញ</label><input id="ef" value="${esc(u.full_name)}"></div>
+    <div class="f"><label for="eu">ឈ្មោះចូល</label><input id="eu" value="${esc(u.username)}" autocapitalize="none" spellcheck="false"></div>
+    <div class="f"><label for="ep">ពាក្យសម្ងាត់ថ្មី <span class="muted">(ទុកទទេ = មិនប្តូរ)</span></label><input id="ep" autocomplete="off"></div>
+  </div>
+  <div class="row" style="flex:1 1 100%;justify-content:space-between">
+    <div class="row"><button class="btn primary" type="submit" id="esave">រក្សាទុក</button><button class="btn ghost" type="button" id="ecancel">បោះបង់</button></div>
+    ${u.is_admin?'':`<div class="row"><button class="btn" type="button" id="etoggle">${u.disabled?'បើកគណនីវិញ':'បិទគណនី'}</button><button class="btn danger" type="button" id="edel">លុប</button></div>`}
+  </div></form>`}
 
 function render(){
   if(view==='login')return renderLogin();
