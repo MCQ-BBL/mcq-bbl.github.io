@@ -177,6 +177,36 @@ td.r,th.r{text-align:right}
 .ustat{flex:0 1 auto;font-size:13px;text-align:right}
 .btn.danger{color:var(--bad);border-color:var(--bad)}
 details summary{list-style:none} details summary::-webkit-details-marker{display:none}
+
+.ptabs{display:flex;gap:6px;background:var(--surface-2);border:1px solid var(--line);border-radius:10px;padding:4px;margin-bottom:10px}
+.ptabs button{flex:1;border:0;background:transparent;border-radius:7px;padding:8px 10px;font-weight:700;color:var(--muted);display:flex;flex-direction:column;align-items:center;line-height:1.3}
+.ptabs button small{font-weight:500;font-size:11.5px}
+.ptabs button.on{background:var(--surface);color:var(--accent);box-shadow:0 1px 3px rgba(0,0,0,.08)}
+.pexam{display:flex;flex-wrap:wrap;gap:8px;justify-content:space-between;align-items:center;font-size:13.5px;margin-bottom:12px}
+.grp{margin-bottom:18px}
+.grp-h{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;margin:6px 2px 8px}
+.grp-h b{display:block;line-height:1.4}
+.grp-h .muted{font-size:12px}
+.lessons{display:grid;gap:6px}
+.les{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:12px 14px;display:grid;gap:8px}
+.les-main{display:flex;flex-wrap:wrap;justify-content:space-between;gap:4px 12px}
+.les-t{min-width:0}
+.les-t b{display:block;font-weight:600;line-height:1.35}
+.les-t .muted{font-size:12px}
+.les-s{display:flex;flex-direction:column;align-items:flex-end;gap:2px;font-size:12px}
+.les .stack{height:5px}
+.les .acts{display:flex;gap:6px}
+.score-chip{border-radius:4px;padding:0 6px;font-weight:600}
+.score-chip.ok{background:var(--good-soft);color:var(--good)} .score-chip.no{background:var(--bad-soft);color:var(--bad)}
+.ltest{display:grid;gap:8px;border-top:1px dashed var(--line);padding-top:10px}
+.ltest .f{display:grid;gap:3px;flex:1 1 90px;min-width:0}
+.ltest label{font-size:12px;color:var(--muted);font-weight:600}
+.ltest input,.ltest select{font:inherit;font-size:15px;padding:7px 9px;border:1px solid var(--line);border-radius:8px;background:var(--surface);color:var(--ink);width:100%}
+
+.expl{margin-top:14px;border-radius:8px;background:var(--accent-soft);padding:10px 12px;display:grid;gap:6px}
+.expl .kw{font-weight:700;color:var(--accent);display:flex;gap:6px;align-items:baseline;overflow-wrap:anywhere}
+.expl p{margin:0;line-height:1.7}
+.expl .xnote{background:var(--warn-soft);color:var(--ink);border-left:3px solid var(--warn);padding:6px 10px;border-radius:4px;font-size:13.5px}
 </style>
 
 </head><body>
@@ -197,7 +227,27 @@ const LS={get(k,d){try{const v=localStorage.getItem(k);return v?JSON.parse(v):d}
 let META=[];const DATA={};
 async function loadDomain(id){
   if(DATA[id])return DATA[id];
-  const r=await fetch(id+'.json');DATA[id]=await r.json();return DATA[id];
+  for(let tries=0;;tries++){
+    try{const r=await fetch(id+'.json');if(!r.ok)throw new Error('HTTP '+r.status);DATA[id]=await r.json();return DATA[id]}
+    catch(e){if(tries>=1)throw e;await new Promise(r=>setTimeout(r,800))}
+  }
+}
+/* explanations: x_<domain>.json = {index:{k:keywords,e:explanation,n:note}} — optional per domain */
+const EXPL={};
+async function loadExpl(d){if(d in EXPL)return;EXPL[d]={};try{const r=await fetch('x_'+d+'.json');if(r.ok)EXPL[d]=await r.json()}catch(e){}}
+function explBlock(d,i){const x=(EXPL[d]||{})[i];if(!x)return '';
+  return `<div class="expl"><div class="kw"><span>🔑</span>${esc(x.k)}</div><p>${esc(x.e)}</p>${x.n?`<p class="xnote">⚠️ ${esc(x.n)}</p>`:''}</div>`}
+async function loadDomains(ids,label){
+  ids.forEach(id=>loadExpl(id).then(()=>{if(view==='read'||view==='quiz')render()}));
+  const need=ids.filter(id=>!DATA[id]);let done=0;
+  const show=()=>{$('#app').innerHTML=`<div class="loading">${label||'កំពុងផ្ទុកសំណួរ…'}${need.length>1?` (${done}/${need.length})`:''}</div>`};
+  if(need.length)show();
+  try{await Promise.all(need.map(id=>loadDomain(id).then(()=>{done++;show()})));return true}
+  catch(e){
+    $('#app').innerHTML=`<section class="summary" style="margin-top:24px"><p style="margin:0">មិនអាចផ្ទុកសំណួរបានទេ។ សូមពិនិត្យអ៊ីនធឺណិត ហើយព្យាយាមម្តងទៀត។</p>
+      <div class="cta"><button class="btn primary" id="retry">ព្យាយាមម្តងទៀត</button><button class="btn ghost" id="gohome">ទំព័រដើម</button></div></section>`;
+    return new Promise(res=>{$('#retry').onclick=async()=>res(await loadDomains(ids,label));$('#gohome').onclick=()=>{view='home';render();res(false)}});
+  }
 }
 
 /* ---------- progress store: localStorage (per user) + Supabase ---------- */
@@ -286,6 +336,66 @@ function stackBar(c){
   const w=x=>(100*x/c.n).toFixed(2)+'%';
   return `<div class="stack" aria-hidden="true"><i style="width:${w(c.mastered)};background:var(--good)"></i><i style="width:${w(c.learning)};background:var(--accent)"></i></div>`;
 }
+/* ---------- lessons (from the Master Google Form: Exit Exam) ---------- */
+const PARTS=[
+ {id:1,kh:'ផ្នែកទី ១',exam:100,groups:[
+  {d:'d1',kh:'វិទ្យាសាស្ត្រមូលដ្ឋាន',en:'Fundamental Science',examN:40,ls:[['Cytology',60,'BBL Y2 S1'],['Cellular & Molecular Biology',120,'BBL Y1 S2'],['Forensic Sciences',104,'BBL Y2 S1'],['Toxicology',71,'BBL Y1 S2'],['Systemic Pathology',139,'BBL Y1 S2'],['ImmunoPathology',91,'ADL'],['Computer Sciences',20,'ADL'],['Life Sciences',70,'ADL'],['Physic & Biochemistry',72,'ADL'],['Pharmacology',39,'ADL']]},
+  {d:'d2',kh:'ការគ្រប់គ្រង ភាពជាអ្នកដឹកនាំ និងប្រព័ន្ធគ្រប់គ្រងគុណភាព',en:'Management, Leadership & QC',examN:30,ls:[['LQMS',105,'BBL Y2 S1'],['Laboratory Information Technology (LIS)',33,'BBL Y1 S2'],['Biostatistics',146,'BBL Y1 S1'],['Leadership',81,'BBL Y1 S2'],['Laboratory Management',85,'ADL']]},
+  {d:'d5',kh:'ភាពបន្ទាន់ ជំងឺសុវត្ថិភាព និងសន្តិសុខ',en:'Emergency, Security & Safety',examN:10,ls:[['Biosafety & Biosecurity',59,'BBL Y1 S2'],['Biosafety & Biosecurity',33,'ADL']]},
+  {d:'d6',kh:'ការស្រាវជ្រាវ',en:'Research',examN:5,ls:[['Basic Epidemiology',100,'BBL Y1 S1'],['Basic of Research',50,'BBL Y1 S2'],['Basic of Research (1)',54,'BBL'],['Basic of Research (2)',112,'BBL']]},
+  {d:'d7',kh:'ការទំនាក់ទំនង និងព័ត៌មានវិទ្យា',en:'Communication & Informatics',examN:5,ls:[['Communication Skill (1)',66,'BBL'],['Communication Skill (2)',64,'BBL Y2 S1'],['Communication Skill (3)',12,'BBL']]},
+  {d:'d8',kh:'ក្រមសីលធម៌',en:'Ethics Competency',examN:10,ls:[['Ethic Science',139,'BBL']]}]},
+ {id:2,kh:'ផ្នែកទី ២',exam:100,groups:[
+  {d:'glp',kh:'ការអនុវត្តមន្ទីរពិសោធន៍ទូទៅ',en:'General Lab Practice',examN:100,ls:[['Biochemistry Practice',43,'ADL'],['Biochemistry Basic',129,'ADL'],['Biochemistry',120,'BBL Y1 S1'],['Blood Transfusion',110,'BBL Y1 S2'],['Hematology Basic',40,'ADL'],['Immunology Application',109,'BBL Y1 S1'],['Hematology',51,'BBL Y1 S1'],['Immuno-Pathology',148,'BBL Y1 S1'],['Specimen Collection and Management',73,'BBL Y1 S1'],['Virology',138,'ADL'],['Bacteriology',104,'ADL'],['Biochemistry',121,'ADL'],['Immunology',50,'ADL'],['Laboratory Equipment',59,'ADL'],['Hematology',90,'ADL'],['Mycology',37,'ADL'],['Parasitology',54,'ADL'],['Immunology II',49,'ADL']]}]}];
+// General Lab Practice is numbered 1–1525 across two files: 1–763 = d3, 764–1525 = d4
+const GLP_SPLIT=763;
+function itemOf(d,num){return d==='glp'?(num<=GLP_SPLIT?['d3',num-1]:['d4',num-GLP_SPLIT-1]):[d,num-1]}
+const LESSONS=[];
+PARTS.forEach(P=>P.groups.forEach(G=>{let at=1;G.lessons=G.ls.map((x,k)=>{const L={id:`${G.d}-${k+1}`,part:P.id,g:G,name:x[0],n:x[1],acad:x[2],from:at,to:at+x[1]-1};at+=x[1];LESSONS.push(L);return L})}));
+const lessonItems=(L,from=L.from,to=L.to)=>{const r=[];for(let n=from;n<=to;n++)r.push(itemOf(L.g.d,n));return r};
+const filesOf=items=>[...new Set(items.map(x=>x[0]))];
+function lessonStats(L){let seen=0,mastered=0;for(const [d,i] of lessonItems(L)){const e=(Store.prog[d]||{})[i];if(e){seen++;if(e[0]>=MASTER)mastered++}}return {seen,mastered}}
+let openTest=null;
+function renderParts(){
+  const part=+LS.get('bbl_part',1)||1;const P=PARTS.find(p=>p.id===part);
+  const scores=Store.settings.ls||{};
+  return `<div class="ptabs" role="tablist">${PARTS.map(p=>`<button role="tab" class="${p.id===part?'on':''}" data-part="${p.id}">${p.kh}<small>${p.groups.reduce((a,g)=>a+g.lessons.reduce((b,l)=>b+l.n,0),0).toLocaleString()} សំណួរ</small></button>`).join('')}</div>
+  <div class="pexam"><span>ប្រឡងពិត ${P.kh}៖ <b>${P.exam} សំណួរ</b></span><button class="btn" data-mock="${P.id}">ប្រឡងសាកល្បង ${P.kh}</button></div>
+  ${P.groups.map(G=>`<section class="grp"><div class="grp-h"><div><b>${esc(G.kh)}</b><span class="muted">${esc(G.en)}</span></div><span class="pill">ប្រឡង ${G.examN} សំណួរ</span></div>
+    <div class="lessons">${G.lessons.map((L,k)=>{const st=lessonStats(L),sc=scores[L.id];return `
+      <div class="les" id="les-${L.id}">
+        <div class="les-main"><div class="les-t"><b>${k+1}. ${esc(L.name)}</b><span class="muted">លេខ ${L.from}–${L.to} · ${L.n} សំណួរ · ${esc(L.acad)}</span></div>
+          <div class="les-s">${sc?`<span class="score-chip ${sc[0]/sc[1]>=.5?'ok':'no'}">តេស្តចុងក្រោយ ${Math.round(100*sc[0]/sc[1])}%</span>`:''}<span class="muted">បានធ្វើ ${st.seen}/${L.n}</span></div></div>
+        <div class="stack" aria-hidden="true"><i style="width:${(100*st.mastered/L.n).toFixed(1)}%;background:var(--good)"></i><i style="width:${(100*(st.seen-st.mastered)/L.n).toFixed(1)}%;background:var(--accent)"></i></div>
+        <div class="acts"><button class="chip" data-lread="${L.id}">អាន</button><button class="chip ${openTest===L.id?'due':''}" data-ltest="${L.id}">តេស្ត</button></div>
+        ${openTest===L.id?`<form class="ltest" data-lid="${L.id}" novalidate>
+          <div class="row"><div class="f"><label for="lf">ពីលេខ</label><input id="lf" type="number" min="${L.from}" max="${L.to}" value="${L.from}" class="num"></div>
+          <div class="f"><label for="lt">ដល់លេខ</label><input id="lt" type="number" min="${L.from}" max="${L.to}" value="${LS.get('bbl_readL_'+L.id,null)!=null?Math.min(L.to,L.from+LS.get('bbl_readL_'+L.id,0)):L.to}" class="num"></div>
+          <div class="f"><label for="lc">ចំនួនសំណួរ</label><select id="lc"><option value="0">ទាំងអស់</option><option>10</option><option selected>20</option><option>30</option><option>50</option></select></div></div>
+          <p class="muted" style="margin:0">«ដល់លេខ» = លេខដែលអ្នកអានដល់។ សំណួរត្រូវបានលាយលំដាប់ ហើយបង្ហាញចម្លើយភ្លាមក្រោយឆ្លើយ។</p>
+          <div class="row"><button class="btn primary" type="submit">ចាប់ផ្តើមតេស្ត</button></div></form>`:''}
+      </div>`}).join('')}</div></section>`).join('')}`;
+}
+function bindParts(){
+  document.querySelectorAll('[data-part]').forEach(b=>b.onclick=()=>{LS.set('bbl_part',+b.dataset.part);openTest=null;render()});
+  document.querySelectorAll('[data-mock]').forEach(b=>b.onclick=()=>mockSetup(+b.dataset.mock));
+  document.querySelectorAll('[data-lread]').forEach(b=>b.onclick=()=>startLessonRead(LESSONS.find(l=>l.id===b.dataset.lread)));
+  document.querySelectorAll('[data-ltest]').forEach(b=>b.onclick=()=>{openTest=openTest===b.dataset.ltest?null:b.dataset.ltest;render();const el=document.getElementById('les-'+b.dataset.ltest);el&&el.scrollIntoView({block:'nearest'})});
+  const f=document.querySelector('.ltest');f&&(f.onsubmit=ev=>{ev.preventDefault();const L=LESSONS.find(l=>l.id===f.dataset.lid);
+    let a=Math.max(L.from,Math.min(L.to,+$('#lf').value||L.from)),z=Math.max(L.from,Math.min(L.to,+$('#lt').value||L.to));if(z<a)[a,z]=[z,a];
+    startLessonTest(L,a,z,+$('#lc').value)});
+}
+async function startLessonRead(L){
+  const items=lessonItems(L);if(!(await loadDomains(filesOf(items))))return;
+  R={key:'bbl_readL_'+L.id,base:L.from,list:items,pos:Math.min(LS.get('bbl_readL_'+L.id,0),items.length-1),title:L.name};view='read';render();
+}
+async function startLessonTest(L,a,z,count){
+  const items=lessonItems(L,a,z);if(!(await loadDomains(filesOf(items))))return;
+  let q=shuffle(items.slice());if(count)q=q.slice(0,count);
+  S={kind:'study',mode:'lesson',lesson:L.id,range:[a,z,count],queue:q,pos:0,answered:null,right:0,wrong:0,requeued:new Set(),log:[]};
+  view='quiz';render();
+}
+
 function renderHome(){
   const T=totals(),todayStats=Store.stats[today()]||[0,0];
   const pct=Math.round(100*T.mastered/T.n);
@@ -306,17 +416,8 @@ function renderHome(){
       <button class="btn ghost" id="go-wrong" ${META.some(m=>domainCounts(m.id).wrongEver)?'':'disabled'}>សំណួរដែលធ្លាប់ខុស</button>
     </div>
   </section>
-  <div class="sec-h"><h2>តាម Domain</h2><span>ចុច «អាន» ដើម្បីមើលចម្លើយ · «ហាត់» ដើម្បីសាកល្បង</span></div>
-  <div class="domains">${META.map((m,i)=>{const c=domainCounts(m.id);return `
-    <div class="dom"><div class="t"><b>${i+1}. ${esc(m.en)}</b><span>${esc(m.kh)}</span></div>
-      <div class="meta"><span class="num">${c.mastered}</span>/${c.n}${c.acc!=null?`<br>ត្រូវ ${Math.round(c.acc*100)}%`:''}</div>
-      ${stackBar(c)}
-      <div class="acts">
-        <button class="chip" data-act="learn" data-d="${m.id}">ហាត់</button>
-        <button class="chip ${c.due?'due':''}" data-act="due" data-d="${m.id}" ${c.due?'':'disabled'}>រំលឹក ${c.due}</button>
-        <button class="chip" data-act="read" data-d="${m.id}">អាន</button>
-        <button class="chip" data-act="wrong" data-d="${m.id}" ${c.wrongEver?'':'disabled'}>ធ្លាប់ខុស ${c.wrongEver}</button>
-      </div></div>`}).join('')}</div>
+  <div class="sec-h"><h2>មេរៀន</h2><span>«អាន» = មើលសំណួរ និងចម្លើយ · «តេស្ត» = សាកល្បងការចងចាំ</span></div>
+  ${renderParts()}
   <div class="settings">
     <label for="s-new">សំណួរថ្មីក្នុងមួយថ្ងៃ</label>
     <select id="s-new">${[20,40,60,100,150,200].map(v=>`<option ${v==Store.settings.newPerDay?'selected':''}>${v}</option>`).join('')}</select>
@@ -326,12 +427,9 @@ function renderHome(){
   <p class="note">របៀបចងចាំ៖ សំណួរដែលឆ្លើយត្រូវ នឹងត្រលប់មកវិញក្រោយ ១ → ៣ → ៧ → ១៦ → ៣៥ ថ្ងៃ។ សំណួរដែលឆ្លើយខុស នឹងមកវិញនៅក្នុងជុំដដែល ហើយម្តងទៀតនៅថ្ងៃស្អែក។ ឆ្លើយត្រូវ ៤ ដងជាប់គ្នា = «ចាំបានល្អ»។ ក្នុងរបៀបហាត់ ជម្រើសនីមួយៗមិនត្រូវបានប្តូរលំដាប់ទេ ព្រោះមានជម្រើសដូចជា «(1)&(2)» ឬ «All of the above»។</p>`;
   syncBadge();
   $('#go-today').onclick=()=>startStudy(META.map(m=>m.id),'today');
-  $('#go-mock').onclick=()=>mockSetup();
+  $('#go-mock').onclick=()=>mockSetup(+LS.get('bbl_part',1)||1);
   $('#go-wrong').onclick=()=>startStudy(META.map(m=>m.id),'wrong');
-  document.querySelectorAll('.dom .chip').forEach(b=>b.onclick=()=>{
-    const d=b.dataset.d,a=b.dataset.act;
-    if(a==='read')startRead(d);else startStudy([d],a==='learn'?'today':a);
-  });
+  bindParts();
   $('#s-new').onchange=e=>{Store.settings.newPerDay=+e.target.value;Store.saveSettings();render()};
   $('#s-round').onchange=e=>{Store.settings.round=+e.target.value;Store.saveSettings();render()};
 }
@@ -343,9 +441,17 @@ function content(e){
 
 /* ---------- study / quiz ---------- */
 async function buildQueue(domains,mode){
-  $('#app').innerHTML='<div class="loading">កំពុងផ្ទុកសំណួរ…</div>';
-  await Promise.all(domains.map(loadDomain));
-  const t=today();let due=[],fresh=[],wrong=[];
+  const t=today();
+  // only load the files that can contribute questions to this session
+  if(mode==='wrong')domains=domains.filter(d=>Object.values(Store.prog[d]||{}).some(e=>e[3]>0));
+  else if(mode==='due')domains=domains.filter(d=>Object.values(Store.prog[d]||{}).some(e=>e[1]<=t));
+  else if(domains.length>1){ // today: domains with due cards + a few random domains that still have new questions
+    const withDue=domains.filter(d=>Object.values(Store.prog[d]||{}).some(e=>e[1]<=t));
+    const withNew=shuffle(domains.filter(d=>{const m=META.find(x=>x.id===d);return Object.keys(Store.prog[d]||{}).length<m.n&&!withDue.includes(d)}));
+    domains=[...withDue,...withNew.slice(0,Math.max(1,3-withDue.length))];
+  }
+  if(!domains.length)return [];
+  if(!(await loadDomains(domains)))return null;let due=[],fresh=[],wrong=[];
   for(const d of domains){const p=Store.prog[d]||{};const n=DATA[d].length;
     for(let i=0;i<n;i++){const e=p[i];
       if(!e)fresh.push([d,i]);else{if(e[1]<=t)due.push([d,i]);if(e[3]>0)wrong.push([d,i,e])}}}
@@ -361,27 +467,43 @@ async function buildQueue(domains,mode){
 }
 async function startStudy(domains,mode){
   const q=await buildQueue(domains,mode);
+  if(q===null)return;
   if(!q.length){view='home';render();return}
   S={kind:'study',domains,mode,queue:q,pos:0,answered:null,right:0,wrong:0,requeued:new Set(),log:[]};
   view='quiz';render();
 }
-function mockSetup(){
-  view='mocksetup';
-  $('#app').innerHTML=`<header class="top"><div class="brand"><small>ប្រឡងសាកល្បង</small><h1>ជ្រើសចំនួនសំណួរ</h1></div></header>
-  <section class="summary"><p style="margin:0">សំណួរត្រូវបានជ្រើសដោយចៃដន្យពីគ្រប់ Domain តាមសមាមាត្រនៃចំនួនសំណួរ។ មិនបង្ហាញចម្លើយរហូតដល់ចប់ ហើយកំណត់ពេល ១ នាទីក្នុងមួយសំណួរ។</p>
-  <div class="cta">${[50,100,150].map(n=>`<button class="btn ${n==100?'primary':''}" data-n="${n}">${n} សំណួរ · ${n} នាទី</button>`).join('')}
-  <button class="btn ghost" id="back">ត្រលប់</button></div></section>`;
-  document.querySelectorAll('[data-n]').forEach(b=>b.onclick=()=>startMock(+b.dataset.n));
+// Exam blueprint published by the Ministry (BBL exit exam): questions per domain
+const BLUEPRINT=[
+  {id:'d1',kh:'វិទ្យាសាស្ត្រមូលដ្ឋាន',n:40},
+  {id:'d2',kh:'ការគ្រប់គ្រង ភាពជាអ្នកដឹកនាំ និងប្រព័ន្ធគ្រប់គ្រងគុណភាព',n:30},
+  {id:'d5',kh:'ភាពបន្ទាន់ ជំងឺសុវត្ថិភាព និងសន្តិសុខ',n:10},
+  {id:'d6',kh:'ការស្រាវជ្រាវ',n:5},
+  {id:'d7',kh:'ការទំនាក់ទំនង និងព័ត៌មានវិទ្យា',n:5},
+  {id:'d8',kh:'ក្រមសីលធម៌',n:10}];
+const EXAM_N=BLUEPRINT.reduce((a,b)=>a+b.n,0), EXAM_MIN=EXAM_N;
+function mockSetup(part){
+  view='mocksetup';part=part||1;
+  const P=PARTS.find(p=>p.id===part);
+  $('#app').innerHTML=`<header class="top"><div class="brand"><small>ប្រឡងសាកល្បង</small><h1>ដូចការប្រឡងពិត</h1></div></header>
+  <div class="ptabs">${PARTS.map(p=>`<button class="${p.id===part?'on':''}" data-mp="${p.id}">${p.kh}<small>${p.exam} សំណួរ</small></button>`).join('')}</div>
+  <section class="summary">
+    <p style="margin:0">ចំនួនសំណួរតាមតារាងរបស់ក្រសួង ជ្រើសដោយចៃដន្យរាល់ពេលប្រឡង។ មិនបង្ហាញចម្លើយរហូតដល់ដាក់ចម្លើយ។</p>
+    <div class="tbl"><table><thead><tr><th>ផ្នែក</th><th class="r">សំណួរ</th></tr></thead><tbody>
+      ${P.groups.map(g=>`<tr><td>${esc(g.kh)}</td><td class="r num">${g.examN}</td></tr>`).join('')}
+      <tr><td><b>សរុប</b></td><td class="r num"><b>${P.exam}</b></td></tr></tbody></table></div>
+    <p class="muted" style="margin:0">ពេលវេលា៖ ${P.exam} នាទី</p>
+    <div class="cta"><button class="btn primary" id="startexam">ចាប់ផ្តើមប្រឡង ${P.kh}</button><button class="btn ghost" id="back">ត្រលប់</button></div>
+  </section>`;
+  document.querySelectorAll('[data-mp]').forEach(b=>b.onclick=()=>mockSetup(+b.dataset.mp));
+  $('#startexam').onclick=()=>startMock(part);
   $('#back').onclick=()=>{view='home';render()};
 }
-async function startMock(n){
-  const ids=META.map(m=>m.id);
-  $('#app').innerHTML='<div class="loading">កំពុងផ្ទុកសំណួរទាំង ៨ Domain…</div>';
-  await Promise.all(ids.map(loadDomain));
-  const total=META.reduce((a,m)=>a+m.n,0);let q=[];
-  META.forEach((m,k)=>{let take=Math.round(n*m.n/total);if(k===META.length-1)take=n-q.length;
-    q=q.concat(shuffle([...Array(m.n).keys()]).slice(0,Math.max(0,take)).map(i=>[m.id,i]))});
-  S={kind:'mock',queue:shuffle(q),pos:0,picks:{},end:Date.now()+n*60000,done:false};
+async function startMock(part){
+  const P=PARTS.find(p=>p.id===part);
+  const pools=P.groups.map(g=>({g,items:g.lessons.flatMap(L=>lessonItems(L))}));
+  if(!(await loadDomains([...new Set(pools.flatMap(x=>filesOf(x.items)))],'កំពុងរៀបចំវិញ្ញាសា…')))return;
+  const q=[];pools.forEach(({g,items})=>shuffle(items.slice()).slice(0,g.examN).forEach(x=>q.push(x)));
+  S={kind:'mock',part,queue:q,pos:0,picks:{},end:Date.now()+P.exam*60000,done:false};
   view='quiz';render();tick();
 }
 function tick(){
@@ -414,7 +536,7 @@ function renderQuiz(){
     <div class="qmeta"><span class="tag">${esc(domName(d))}</span>${tag}</div>
     <div class="stem">${content(Q.q)}</div>
     <div class="opts">${Q.o.map((o,k)=>`<button class="opt ${optCls(k)}" data-k="${k}" ${(!mock&&picked!=null)?'disabled':''}><span class="k">${LET[k]||k+1}</span>${content(o)}</button>`).join('')}</div>
-    ${(!mock&&picked!=null)?`<div class="feedback"><span class="msg ${picked===Q.a?'ok':'no'}">${picked===Q.a?'✓ ត្រឹមត្រូវ':'✗ មិនត្រឹមត្រូវ · ចម្លើយគឺ '+(LET[Q.a])}</span><button class="btn primary" id="next">${S.pos+1<n?'បន្ទាប់ →':'មើលលទ្ធផល'}</button></div>`:''}
+    ${(!mock&&picked!=null)?`<div class="feedback"><span class="msg ${picked===Q.a?'ok':'no'}">${picked===Q.a?'✓ ត្រឹមត្រូវ':'✗ មិនត្រឹមត្រូវ · ចម្លើយគឺ '+(LET[Q.a])}</span><button class="btn primary" id="next">${S.pos+1<n?'បន្ទាប់ →':'មើលលទ្ធផល'}</button></div>${explBlock(d,i)}`:''}
     ${mock?`<div class="nav"><button class="btn" id="prev" ${S.pos?'':'disabled'}>← មុន</button><span class="kbd">${Object.keys(S.picks).length} / ${n} បានឆ្លើយ</span>${S.pos+1<n?'<button class="btn primary" id="mnext">បន្ទាប់ →</button>':'<button class="btn primary" id="submit">ដាក់ចម្លើយ</button>'}</div>`:''}
   </article>
   <p class="kbd" style="margin-top:12px">ក្តារចុច៖ 1–${Q.o.length} ជ្រើសចម្លើយ · Enter បន្ទាប់</p>`;
@@ -452,44 +574,48 @@ function renderDone(){
   else{const seen=new Map();S.log.forEach(([d,i,ok])=>{const k=d+':'+i;if(!seen.has(k))seen.set(k,[d,i,ok])});
     seen.forEach(([d,i,ok])=>{(by[d]=by[d]||[0,0])[0]++;if(ok){by[d][1]++;right++}else wrongList.push([d,i])});total=seen.size}
   const pct=total?Math.round(100*right/total):0;
+  if(S.mode==='lesson'&&!S.saved){S.saved=1;Store.settings.ls={...(Store.settings.ls||{}),[S.lesson]:[right,total,today()]};Store.saveSettings()}
   rows=Object.keys(by).map(d=>`<tr><td>${esc(domName(d))}</td><td class="r num">${by[d][1]}/${by[d][0]}</td><td class="r num">${Math.round(100*by[d][1]/by[d][0])}%</td></tr>`).join('');
-  $('#app').innerHTML=`<header class="top"><div class="brand"><small>${S.kind==='mock'?'លទ្ធផលប្រឡងសាកល្បង':'ចប់ជុំនេះ'}</small><h1>${S.kind==='mock'?(pct>=50?'ល្អណាស់ បន្តទៀត':'ត្រូវរំលឹកបន្ថែម'):'ធ្វើបានល្អ'}</h1></div></header>
+  $('#app').innerHTML=`<header class="top"><div class="brand"><small>${S.kind==='mock'?'លទ្ធផលប្រឡងសាកល្បង':S.mode==='lesson'?'តេស្តមេរៀន · '+esc(LESSONS.find(l=>l.id===S.lesson).name):'ចប់ជុំនេះ'}</small><h1>${S.kind==='mock'?(pct>=50?'ល្អណាស់ បន្តទៀត':'ត្រូវរំលឹកបន្ថែម'):'ធ្វើបានល្អ'}</h1></div></header>
   <section class="res">
     <div class="bigrow"><div class="big"><span class="score num ${pct>=50?'pass':'fail'}">${pct}%</span><span class="l">ត្រូវ ${right} / ${total}${S.kind==='study'?' (ការឆ្លើយលើកដំបូង)':''}</span></div></div>
     <div class="tbl"><table><thead><tr><th>Domain</th><th class="r">ត្រូវ</th><th class="r">%</th></tr></thead><tbody>${rows}</tbody></table></div>
     <div class="cta">
-      ${S.kind==='study'?'<button class="btn primary" id="again">ជុំបន្ទាប់</button>':''}
+      ${S.kind==='study'?`<button class="btn primary" id="again">${S.mode==='lesson'?'តេស្តម្តងទៀត':'ជុំបន្ទាប់'}</button>`:''}
       ${wrongList.length?`<button class="btn" id="review">មើលសំណួរខុស (${wrongList.length})</button>`:''}
       <button class="btn ghost" id="home">ទំព័រដើម</button></div>
   </section>`;
   $('#home').onclick=()=>{S=null;view='home';render()};
-  const a=$('#again');a&&(a.onclick=()=>startStudy(S.domains,S.mode==='wrong'?'wrong':S.mode));
+  const a=$('#again');a&&(a.onclick=()=>{if(S.mode==='lesson'){const L=LESSONS.find(l=>l.id===S.lesson);startLessonTest(L,S.range[0],S.range[1],S.range[2])}else startStudy(S.domains,S.mode==='wrong'?'wrong':S.mode)});
   const r=$('#review');r&&(r.onclick=()=>{R={list:wrongList,pos:0,title:'សំណួរដែលខុស'};view='read';render()});
 }
 
 /* ---------- read mode (answers shown) ---------- */
 let R=null;
 async function startRead(d){
-  await loadDomain(d);
+  if(!(await loadDomains([d])))return;
   const pos=LS.get('bbl_read_'+d,0);
   R={d,list:DATA[d].map((_,i)=>[d,i]),pos:Math.min(pos,DATA[d].length-1),title:domName(d)};view='read';render();
 }
 function renderRead(){
   const [d,i]=R.list[R.pos];const Q=DATA[d][i];const n=R.list.length;
-  if(R.d)LS.set('bbl_read_'+R.d,R.pos);
+  if(R.d)LS.set('bbl_read_'+R.d,R.pos);if(R.key)LS.set(R.key,R.pos);const base=R.base||1;
   $('#app').innerHTML=`
   <div class="bar"><div class="bar-row"><button class="btn ghost" id="quit" style="padding:6px 12px">✕ ចេញ</button><span class="lbl">${esc(R.title)} · អាន</span>
-    <span class="jump"><label for="jump" class="kbd">ទៅ</label><input id="jump" type="number" min="1" max="${n}" value="${R.pos+1}" class="num"><span class="kbd num">/ ${n}</span></span></div>
+    <span class="jump"><label for="jump" class="kbd">ទៅ</label><input id="jump" type="number" min="${base}" max="${base+n-1}" value="${base+R.pos}" class="num"><span class="kbd num">/ ${base+n-1}</span></span></div>
     <div class="prog"><i style="width:${100*(R.pos+1)/n}%"></i></div></div>
   <article class="card">
-    <div class="qmeta"><span class="tag">${esc(domName(d))}</span></div>
+    <div class="qmeta"><span class="tag">${esc(R.key?R.title:domName(d))}</span>${R.key?`<span class="tag">លេខ ${base+R.pos}</span>`:''}</div>
     <div class="stem">${content(Q.q)}</div>
     <div class="opts">${Q.o.map((o,k)=>`<div class="opt ${k===Q.a?'correct':''}"><span class="k">${LET[k]}</span>${content(o)}</div>`).join('')}</div>
+    ${explBlock(d,i)}
     <div class="nav"><button class="btn" id="prev" ${R.pos?'':'disabled'}>← មុន</button><button class="btn primary" id="rnext" ${R.pos+1<n?'':'disabled'}>បន្ទាប់ →</button></div>
+    ${R.key?`<div class="nav"><button class="btn" id="testhere">តេស្តពីដើមមេរៀន ដល់លេខ ${base+R.pos}</button></div>`:''}
   </article><p class="kbd" style="margin-top:12px">ក្តារចុច៖ ← → ដើម្បីប្តូរសំណួរ</p>`;
   $('#quit').onclick=()=>{R=null;view=S&&S.kind==='mock'?'done':'home';if(view==='home')S=null;render()};
+  const th=$('#testhere');th&&(th.onclick=()=>{const L=LESSONS.find(l=>'bbl_readL_'+l.id===R.key);startLessonTest(L,L.from,base+R.pos,Math.min(20,R.pos+1))});
   $('#prev').onclick=()=>{R.pos--;render()};$('#rnext').onclick=()=>{R.pos++;render()};
-  $('#jump').onchange=e=>{const v=Math.max(1,Math.min(n,+e.target.value||1));R.pos=v-1;render()};
+  $('#jump').onchange=e=>{const v=Math.max(base,Math.min(base+n-1,+e.target.value||base));R.pos=v-base;render()};
 }
 
 
